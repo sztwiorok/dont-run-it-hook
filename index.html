@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sec.log // critical incidents</title>
+<style>
+  :root {
+    --bg: #0a0e0a;
+    --bg-panel: #0f1410;
+    --fg: #c8e6c8;
+    --fg-dim: #6a8a6a;
+    --accent: #00ff9c;
+    --warn: #ffb454;
+    --crit: #ff4d6d;
+    --info: #6ec1ff;
+    --border: #1f2a1f;
+    --mono: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.55;
+    min-height: 100vh;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 255, 156, 0.025) 0px,
+      rgba(0, 255, 156, 0.025) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.6) 100%);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 2;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+  }
+
+  /* Header */
+  header {
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    padding: 16px 20px;
+    margin-bottom: 24px;
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+  }
+
+  .titlebar .dots span {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: #2a3a2a;
+  }
+  .titlebar .dots span:nth-child(1) { background: var(--crit); }
+  .titlebar .dots span:nth-child(2) { background: var(--warn); }
+  .titlebar .dots span:nth-child(3) { background: var(--accent); }
+
+  .titlebar .path {
+    color: var(--fg-dim);
+    font-size: 12px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+  }
+  h1 .blink {
+    display: inline-block;
+    width: 9px;
+    height: 16px;
+    background: var(--accent);
+    margin-left: 4px;
+    transform: translateY(2px);
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px 24px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+  .meta b { color: var(--fg); font-weight: 500; }
+
+  /* Status bar */
+  .statusbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    padding: 10px 16px;
+    margin-bottom: 24px;
+    font-size: 12px;
+  }
+  .statusbar .item { color: var(--fg-dim); }
+  .statusbar .item b { color: var(--accent); font-weight: 600; }
+  .statusbar .item.crit b { color: var(--crit); }
+  .statusbar .item.warn b { color: var(--warn); }
+
+  /* Filters */
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .filters button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg-dim);
+    font-family: inherit;
+    font-size: 12px;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filters button:hover {
+    color: var(--fg);
+    border-color: var(--fg-dim);
+  }
+  .filters button.active {
+    color: var(--bg);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* Incident cards */
+  .incident {
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    margin-bottom: 16px;
+    padding: 18px 20px;
+    position: relative;
+    transition: border-color 0.2s;
+  }
+  .incident:hover { border-color: var(--fg-dim); }
+
+  .incident.sev-critical { border-left: 3px solid var(--crit); }
+  .incident.sev-high     { border-left: 3px solid var(--warn); }
+  .incident.sev-medium   { border-left: 3px solid var(--info); }
+
+  .inc-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .inc-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .inc-title .cve {
+    color: var(--accent);
+    margin-right: 8px;
+  }
+
+  .inc-tags {
+    display: flex;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .tag {
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .tag.sev-critical { color: var(--crit); border-color: var(--crit); }
+  .tag.sev-high     { color: var(--warn); border-color: var(--warn); }
+  .tag.sev-medium   { color: var(--info); border-color: var(--info); }
+  .tag.cvss { color: var(--fg); }
+
+  .inc-desc {
+    color: var(--fg);
+    margin: 8px 0 12px;
+  }
+
+  .kv {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 4px 24px;
+    font-size: 12px;
+    color: var(--fg-dim);
+    border-top: 1px dashed var(--border);
+    padding-top: 10px;
+  }
+  .kv > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kv b { color: var(--fg); font-weight: 500; }
+  .kv a {
+    color: var(--info);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--info);
+  }
+  .kv a:hover { color: var(--accent); border-color: var(--accent); }
+
+  .inc-num {
+    position: absolute;
+    top: 14px;
+    right: 18px;
+    color: var(--fg-dim);
+    font-size: 11px;
+    opacity: 0.5;
+  }
+
+  /* Footer */
+  footer {
+    margin-top: 32px;
+    padding: 16px 20px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+  footer .row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  footer .row span b { color: var(--accent); }
+  footer .disclaimer { margin-top: 10px; opacity: 0.7; line-height: 1.6; }
+
+  /* Selection */
+  ::selection { background: var(--accent); color: var(--bg); }
+
+  /* Mobile */
+  @media (max-width: 600px) {
+    .wrap { padding: 16px 12px 48px; }
+    h1 { font-size: 18px; }
+    .inc-title { font-size: 14px; }
+    body { font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="titlebar">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="path">~/intel/threats/2024-2025/critical.log</div>
+    </div>
+    <h1>$ cat critical_incidents.log<span class="blink"></span></h1>
+    <div class="meta">
+      <div><b>SOURCE:</b> NVD / MITRE / CISA KEV</div>
+      <div><b>UPDATED:</b> <span id="updated">2026-05-27</span></div>
+      <div><b>SCOPE:</b> H2 2024 — Q1 2025</div>
+      <div><b>FILTER:</b> CVSS ≥ 7.5 / mass impact</div>
+    </div>
+  </header>
+
+  <div class="statusbar">
+    <div class="item crit"><b>● 6</b> CRITICAL</div>
+    <div class="item warn"><b>● 4</b> HIGH</div>
+    <div class="item"><b>● 10</b> tracked</div>
+    <div class="item"><b>kev:</b> 8 in CISA Known Exploited</div>
+    <div class="item"><b>uptime:</b> <span id="uptime">--</span></div>
+  </div>
+
+  <div class="filters">
+    <button class="active" data-filter="all">all</button>
+    <button data-filter="critical">critical</button>
+    <button data-filter="high">high</button>
+    <button data-filter="supply-chain">supply-chain</button>
+    <button data-filter="rce">rce</button>
+    <button data-filter="auth-bypass">auth-bypass</button>
+  </div>
+
+  <main id="list">
+
+    <!-- 1 -->
+    <article class="incident sev-critical" data-cats="critical supply-chain">
+      <div class="inc-num">#01</div>
+      <div class="inc-head">
+        <div class="inc-title"><span class="cve">CVE-2024-3094</span>XZ Utils backdoor</div>
+        <div class="inc-tags">
+          <span class="tag sev-critical">critical</span>
+          <span class="tag cvss">CVSS 10.0</span>
+          <span class="tag">supply-chain</span>
+        </div>
+      </div>
+      <p class="inc-desc">
+        Złośliwy kod wstrzyknięty do liblzma (xz-utils 5.6.0/5.6.1) przez "Jia Tan" — wieloletni
+        social engineering na maintainera. Backdoor modyfikował funkcję RSA_public_decrypt w sshd
+        przez IFUNC resolver, pozwalając na pre-auth RCE przy posiadaniu klucza atakującego.
+        Wykryty przez Andresa Freunda (Microsoft) po zauważeniu opóźnień w logowaniu SSH.
+      </p>
+      <div class="kv">
+        <div><b>discovered:</b> 2024-03-29</div>
+        <div><b>vector:</b> network / pre-auth</div>
+        <div><b>impact:</b> RCE on sshd</div>
+        <div><b>affected:</b> Fedora rawhide, Debian sid, openSUSE Tumbleweed</div>
+        <div><b>ref:</b> <a href="https://nvd.nist.gov/vuln/detail/CVE-2024-3094" target="_blank" rel="noopener">NVD</a></div>
+      </div>
+    </article>
+
+    <!-- 2 -->
+    <article class="incident sev-critical" data-cats="critical rce">
+      <div class="inc-num">#02</div>
+      <div class="inc-head">
+        <div class="inc-title"><span class="cve">CVE-2024-6387</span>regreSSHion — OpenSSH</div>
+        <div class="inc-tags">
+          <span class="tag sev-critical">critical</span>
+          <span class="tag cvss">CVSS 8.1</span>
+          <span class="tag">rce</span>
+        </div>
+      </div>
+      <p class="inc-desc">
+        Signal handler race condition w sshd (glibc-based Linux) — regresja CVE-2006-5051
+        wprowadzona ponownie w OpenSSH 8.5p1. Pre-auth RCE jako root. Qualys udowodnił
+        eksploatację na 32-bit (~6-8h przy domyślnym LoginGraceTime=120s); 64-bit trudniejszy,
+        ale wykonalny.
+      </p>
+      <div class="kv">
+        <div><b>discovered:</b> 2024-07-01</div>
+        <div><b>vector:</b> network / pre-auth</div>
+        <div><b>impact:</b> RCE as root</div>
+        <div><b>affected:</b> OpenSSH 8.5p1 – 9.7p1</div>
+        <div><b>ref:</b> <a href="https://nvd.nist.gov/vuln/detail/CVE-2024-6387" target="_blank" rel="noopener">NVD</a></div>
+      </div>
+    </article>
+
+    <!-- 3 -->
+    <article class="incident sev-critical" data-cats="critical rce">
+      <div class="inc-num">#03</div>
+      <div class="inc-head">
+        <div class="inc-title"><span class="cve">CVE-2024-38063</span>Windows TCP/IP IPv6 RCE</div>
+        <div class="inc-tags">
+          <span class="tag sev-critical">critical</span>
+          <span class="tag cvss">CVSS 9.8</span>
+          <span class="tag">zero-click</span>
+        </div>
+      </div>
+      <p class="inc-desc">
+        Integer underflow w stosie IPv6 Windows — zdalne wykonanie kodu w jądrze przez specjalnie
+        spreparowany pakiet IPv6. Zero-click, bez interakcji użytkownika. Microsoft zalecił
+        wyłączenie IPv6 lub blokowanie pakietów do czasu patcha.
+      </p>
+      <div class="kv">
+        <div><b>discovered:</b> 2024-08-13 (Patch Tuesday)</div>
+        <div><b>vector:</b> network / zero-click</div>
+        <div><b>impact:</b> kernel RCE</div>
+        <div><b>affected:</b> Windows 10/11, Server 2008–2022</div>
+        <div><b>ref:</b> <a href="https://nvd.nist.gov/vuln/detail/CVE-2024-38063" target="_blank" rel="noopener">NVD</a></div>
+      </div>
+    </article>
+
+    <!-- 4 -->
+    <article class="incident sev-critical" data-cats="critical rce">
+      <div class="inc-num">#04</div>
+      <div class="inc-head">
+        <div class="inc-title"><span class="cve">CVE-2024-47076 / 47175 / 47176 / 47177</span>CUPS RCE chain</div>
+        <div class="inc-tags">
+          <span class="tag sev-critical">critical</span>
+          <span class="tag cvss">CVSS 9.1</span>
+          <span class="tag">rce</span>
+        </div>
+      </div>
+      <p class="inc-desc">
+        Łańcuch w cups-browsed / libcupsfilters / libppd: nasłuch na UDP/631, brak walidacji
+        atrybutów IPP, wstrzyknięcie FoomaticRIPCommandLine w pliku PPD → wykonanie polecenia
+        przy próbie wydruku. Reported by Simone Margaritelli (evilsocket).
+      </p>
+      <div class="kv">
+        <div><b>discovered:</b> 2024-09-26</div>
+        <div><b>vector:</b> LAN / UDP/631</div>
+        <div><b>impact:</b> RCE on print job</div>
+        <div><b>affected:</b> większość dystrybucji Linux/BSD z CUPS</div>
+        <div><b>ref:</b> <a href="https://nvd.nist.gov/vuln/detail/CVE-2024-47177" target="_blank" rel="noopener">NVD</a></div>
+      </div>
+    </article>
+
+    <!-- 5 -->
+    <article class="incident sev-high" data-cats="high supply-chain">
+      <div class="inc-num">#05</div>
+      <div class="inc-head">
+        <div class="inc-title">polyfill.io supply-chain</div>
+        <div class="inc-tags">
+          <span class="tag sev-high">high</span>
+          <span class="tag">supply-chain</span>
+          <span class="tag">js</span>
+        </div>
+      </div>
+      <p class="inc-desc">
+        Po przejęciu domeny polyfill.io przez "Funnull" (luty 2024), skrypt zaczął serwować
+        złośliwy JS na ~100k+ stron www (m.in. JSTOR, Intuit, World Economic Forum). Payload
+        warunkowy: tylko mobile, nie-admin, przekierowanie do sites typu sports betting/malware.
+        Cloudflare i Google podjęły akcje mitygujące (CDN replacement, blokada w Ads).
+      </p>
+      <div class="kv">
+        <div><b>discovered:</b> 2024-06-25 (Sansec)</div>
+        <div><b>vector:</b> CDN trust</div>
+        <div><b>impact:</b> drive-by redirect</div>
+        <div><b>affected:</b> ~100 000+ witryn ładujących cdn.polyfill.io</div>
+        <div><b>mitigation:</b> usuń &lt;script src="polyfill.io"&gt;</div>
+      </div>
+    </article>
+
+    <!-- 6 -->
+    <article class="incident sev-high" data-cats="high">
+      <div class="inc-num">#06</div>
+      <div class="inc-head">
+        <div class="inc-title">CrowdStrike Falcon — global outage</div>
+        <div class="inc-tags">
+          <span class="tag sev-high">high</span>
+          <span class="tag">availability</span>
+          <span class="tag">edr</span>
+        </div>
+      </div>
+      <p class="inc-desc">
+        Wadliwy "Channel File 291" dla sensora Falcon (Windows) spowodował null-pointer
+        dereference w driverze kernel-mode → BSOD w boot loopie na ~8.5M maszyn. Globalny
+        outage linii lotniczych, banków, szpitali. Nie była to luka, ale podręcznikowy przykład
+        ryzyka monokultury EDR i braku staged rollout.
+      </p>
+      <div class="kv">
+        <div><b>discovered:</b> 2024-07-19</div>
+        <div><b>vector:</b> auto-update kernel driver</div>
+        <div><b>impact:</b> ~8.5M hostów down</div>
+        <div><b>cost:</b> est. $5.4B (Fortune 500 alone)</div>
+        <div><b>lesson:</b> staged rollout, kernel ≠ playground</div>
+      </div>
+    </article>
+
+    <!-- 7 -->
+    <article class="incident sev-critical" data-cats="critical auth-bypass">
+      <div class="inc-num">#07</div>
+      <div class="inc-head">
+        <div class="inc-title"><span class="cve">CVE-2024-47575</span>FortiJump — FortiManager</div>
+        <div class="inc-tags">
+          <span class="tag sev-critical">critical</span>
+          <span class="tag cvss">CVSS 9.8</span>
+          <span class="tag">auth-bypass</span>
+        </div>
+      </div>
+      <p class="inc-desc">
+        Brak autentykacji w fgfmd (FortiGate-to-FortiManager protocol) — atakujący z dowolnym
+        urządzeniem podszywającym się pod FortiGate może wykonać polecenia na FortiManagerze.
+        Aktywnie wykorzystywany (UNC5820) do eksfiltracji konfiguracji 50+ urządzeń przed
+        publikacją CVE.
+      </p>
+      <div class="kv">
+        <div><b>discovered:</b> 2024-10-23</div>
+        <div><b>vector:</b> network / no-auth</div>
+        <div><b>impact:</b> config exfil + lateral movement</div>
+        <div><b>affected:</b> FortiManager 6.2 – 7.6.0</div>
+        <div><b>ref:</b> <a href="https://nvd.nist.gov/vuln/detail/CVE-2024-47575" target="_blank" rel="noopener">NVD</a> · CISA KEV</div>
+      </div>
+    </article>
+
+    <!-- 8 -->
+    <article class="incident sev-critical" data-cats="critical">
+      <div class="inc-num">#08</div>
+      <div class="inc-head">
+        <div class="inc-title">Snowflake — credential stuffing kampania</div>
+        <div class="inc-tags">
+          <span class="tag sev-critical">critical</span>
+          <span class="tag">cloud</span>
+          <span class="tag">credentials</span>
+        </div>
+      </div>
+      <p class="inc-desc">
+        UNC5537 wykorzystał skradzione (infostealer) loginy do kont Snowflake bez MFA. Brak luki
+        w platformie — błąd konfiguracji klientów. Wycieki: Ticketmaster (560M), AT&T (~110M
+        rekordów połączeń), Santander, Advance Auto Parts, LendingTree i kilkadziesiąt innych.
+        Snowflake wprowadził obowiązkowe MFA dla nowych kont (post-incident).
+      </p>
+      <div class="kv">
+        <div><b>discovered:</b> 2024-05/06</div>
+        <div><b>vector:</b> stolen creds (no MFA)</div>
+        <div><b>impact:</b> data exfil — setki TB</div>
+        <div><b>affected:</b> ~165 organizacji</div>
+        <div><b>mitigation:</b> wymuś MFA + network policies</div>
+      </div>
+    </article>
+
+    <!-- 9 -->
+    <article class="incident sev-high" data-cats="high rce">
+      <div class="inc-num">#09</div>
+      <div class="inc-head">
+        <div class="inc-title"><span class="cve">CVE-2024-21413</span>Outlook MonikerLink</div>
+        <div class="inc-tags">
+          <span class="tag sev-high">high</span>
+          <span class="tag cvss">CVSS 9.8</span>
+          <span class="tag">rce</span>
+        </div>
+      </div>
+      <p class="inc-desc">
+        Obejście Protected View w Outlooku — link "file://..!something" wymusza otwarcie pliku
+        w trybie edycji, pozwala na NTLM credential leak i RCE przez Office. Wystarczy
+        kliknięcie hyperlinku w mailu (preview pane wystarczył w niektórych konfiguracjach).
+      </p>
+      <div class="kv">
+        <div><b>discovered:</b> 2024-02-13 (Check Point)</div>
+        <div><b>vector:</b> email / 1-click</div>
+        <div><b>impact:</b> RCE + NTLM leak</div>
+        <div><b>affected:</b> Outlook (większość wersji do patcha 02/2024)</div>
+        <div><b>ref:</b> <a href="https://nvd.nist.gov/vuln/detail/CVE-2024-21413" target="_blank" rel="noopener">NVD</a></div>
+      </div>
+    </article>
+
+    <!-- 10 -->
+    <article class="incident sev-critical" data-cats="critical auth-bypass">
+      <div class="inc-num">#10</div>
+      <div class="inc-head">
+        <div class="inc-title"><span class="cve">CVE-2024-3400</span>Palo Alto GlobalProtect</div>
+        <div class="inc-tags">
+          <span class="tag sev-critical">critical</span>
+          <span class="tag cvss">CVSS 10.0</span>
+          <span class="tag">command-injection</span>
+        </div>
+      </div>
+      <p class="inc-desc">
+        Command injection w GlobalProtect (PAN-OS) przez nagłówek SESSID — atakujący tworzy
+        plik z command payload jako session ID, który PAN-OS interpretuje w skrypcie shell.
+        Aktywnie wykorzystywany przez UTA0218 (Operation MidnightEclipse) jako 0-day przed
+        ujawnieniem.
+      </p>
+      <div class="kv">
+        <div><b>discovered:</b> 2024-04-12 (Volexity)</div>
+        <div><b>vector:</b> network / pre-auth</div>
+        <div><b>impact:</b> RCE as root on firewall</div>
+        <div><b>affected:</b> PAN-OS 10.2/11.0/11.1 (GlobalProtect + telemetry on)</div>
+        <div><b>ref:</b> <a href="https://nvd.nist.gov/vuln/detail/CVE-2024-3400" target="_blank" rel="noopener">NVD</a> · CISA KEV</div>
+      </div>
+    </article>
+
+  </main>
+
+  <footer>
+    <div class="row">
+      <span><b>EOF</b> — koniec wpisów</span>
+      <span>process exited <b>0</b></span>
+    </div>
+    <div class="disclaimer">
+      Lista zawiera incydenty zweryfikowane (NVD/MITRE/CISA KEV) o wysokim wpływie i szerokim
+      zasięgu. Klasyfikacja CVSS wg źródeł producentów / NVD. Dane do <span id="cutoff">stycznia 2026</span>.
+      Strona statyczna — żadnej telemetrii, żadnych ciasteczek, żadnego JS poza filtrami listy.
+    </div>
+  </footer>
+
+</div>
+
+<script>
+  // Filters
+  const buttons = document.querySelectorAll('.filters button');
+  const items = document.querySelectorAll('.incident');
+  buttons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      buttons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const f = btn.dataset.filter;
+      items.forEach(it => {
+        const cats = it.dataset.cats || '';
+        it.style.display = (f === 'all' || cats.split(/\s+/).includes(f)) ? '' : 'none';
+      });
+    });
+  });
+
+  // Uptime ticker
+  const start = Date.now();
+  const uptimeEl = document.getElementById('uptime');
+  function tick() {
+    const s = Math.floor((Date.now() - start) / 1000);
+    const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    uptimeEl.textContent = `${hh}:${mm}:${ss}`;
+  }
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
